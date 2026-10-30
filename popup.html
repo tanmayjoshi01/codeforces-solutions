@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CF2GitHub</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <main>
+    <h1>CF2GitHub</h1>
+    <label>GitHub token <span class="token-row"><input id="token" type="password" autocomplete="off"><button id="toggleToken" type="button">Show</button></span></label>
+    <label>Owner <input id="owner" placeholder="octocat"></label>
+    <label>Repository <input id="repo" placeholder="codeforces-solutions"></label>
+    <label>Branch <input id="branch" placeholder="main"></label>
+    <label>Folder template <input id="folderTemplate"></label>
+    <label>Commit message template <input id="commitMessageTemplate"></label>
+    <small>{contestId}, {index}, {name}, {language}</small>
+    <label class="check"><input id="autoPush" type="checkbox"> Auto-push on Accepted</label>
+    <label class="check"><input id="includeReadme" type="checkbox"> Include README</label>
+    <div class="buttons"><button id="test">Test connection</button><button id="save" class="primary">Save</button></div>
+    <p id="status" role="status"></p>
+    <section><h2>Stats</h2><p><strong id="total">0</strong> solutions pushed · <strong id="streak">0</strong> day streak</p></section>
+    <a href="https://github.com/settings/personal-tokens/new" target="_blank" rel="noopener">How to create a token</a>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
