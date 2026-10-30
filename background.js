@@ -1,39 +1,44 @@
 importScripts("utils.js");
 
-const DEFAULTS = {
-  branch: "main",
-  folderTemplate: "{contestId}{index} - {name}",
-  autoPush: true,
-  includeReadme: true,
-  commitMessageTemplate: "Add {contestId}{index} - {name} [{language}]"
-};
 let pushQueue = Promise.resolve();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "PUSH_SUBMISSION") return false;
-  pushQueue = pushQueue
-    .then(() => processSubmission(message.payload || {}, Boolean(message.manual)))
-    .then(sendResponse)
-    .catch((error) => ({ ok: false, error: error.message || "Unexpected error." }))
-    .then((response) => {
+  if (message?.type === "PUSH_SUBMISSION") {
+    pushQueue = pushQueue.then(async () => {
+      let response;
+      try {
+        response = await processSubmission(message.payload || {}, Boolean(message.manual));
+      } catch (error) {
+        response = { ok: false, error: error?.message || "Unexpected error." };
+      }
+      if (!response || typeof response.ok !== "boolean") {
+        response = { ok: false, error: "The push operation returned an invalid response." };
+      }
       if (!response.ok) notify("CF2GitHub", response.error);
-      return response;
+      sendResponse(response);
+    }).catch((error) => {
+      const response = { ok: false, error: error?.message || "Unexpected error." };
+      notify("CF2GitHub", response.error);
+      sendResponse(response);
     });
+    return true;
+  }
+  if (message?.type === "GET_STATS") {
+    chrome.storage.local.get({ stats: { total: 0, days: [] } }).then(({ stats }) => {
+      sendResponse({ ok: true, total: stats.total || 0, streak: currentStreak(stats.days) });
+    }).catch((error) => {
+      sendResponse({ ok: false, error: error?.message || "Could not load statistics." });
+    });
+    return true;
+  }
+  sendResponse({ ok: false, error: "Unsupported message type." });
   return true;
 });
 
-async function getSettings() {
-  const [sync, local] = await Promise.all([
-    chrome.storage.sync.get(DEFAULTS),
-    chrome.storage.local.get({ token: "" })
-  ]);
-  return { ...DEFAULTS, ...sync, token: local.token };
-}
-
 async function processSubmission(submission, manual) {
   const settings = await getSettings();
-  if (!settings.token) return { ok: false, error: "GitHub token is not configured." };
-  if (!settings.owner || !settings.repo) return { ok: false, error: "GitHub owner and repository are required." };
+  const missing = missingSettings(settings);
+  if (missing.length) return { ok: false, error: `Missing settings: ${missing.join(", ")}.` };
   if (!settings.autoPush && !manual) return { ok: true, skipped: true };
 
   const local = await chrome.storage.local.get({ pushedSubmissions: [] });
@@ -159,11 +164,3 @@ async function setBadge() {
 function notify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: "icons/icon48.png", title, message: String(message).slice(0, 240) }).catch(() => {});
 }
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "GET_STATS") return false;
-  chrome.storage.local.get({ stats: { total: 0, days: [] } }).then(({ stats }) =>
-    sendResponse({ total: stats.total || 0, streak: currentStreak(stats.days) })
-  );
-  return true;
-});

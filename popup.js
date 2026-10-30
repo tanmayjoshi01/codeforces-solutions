@@ -1,13 +1,12 @@
-const defaults = { branch: "main", folderTemplate: "{contestId}{index} - {name}", commitMessageTemplate: "Add {contestId}{index} - {name} [{language}]", autoPush: true, includeReadme: true };
-const ids = ["owner", "repo", "branch", "folderTemplate", "commitMessageTemplate", "autoPush", "includeReadme"];
+const ids = SETTINGS_KEYS;
 const $ = (id) => document.getElementById(id);
 function status(message, error = false) { $("status").textContent = message; $("status").style.color = error ? "#b42318" : "#16803c"; }
 async function load() {
-  const [settings, secret, stats] = await Promise.all([
-    chrome.storage.sync.get(defaults), chrome.storage.local.get({ token: "" }), new Promise((resolve) => chrome.runtime.sendMessage({ type: "GET_STATS" }, resolve))
+  const [settings, stats] = await Promise.all([
+    getSettings(), new Promise((resolve) => chrome.runtime.sendMessage({ type: "GET_STATS" }, resolve))
   ]);
   ids.forEach((id) => { $(id).value = settings[id] ?? ""; if ($(id).type === "checkbox") $(id).checked = settings[id] ?? false; });
-  $("token").value = secret.token || ""; $("total").textContent = stats?.total || 0; $("streak").textContent = stats?.streak || 0;
+  $("token").value = settings.token || ""; $("total").textContent = stats?.total || 0; $("streak").textContent = stats?.streak || 0;
 }
 async function save() {
   const settings = Object.fromEntries(ids.map((id) => [id, $(id).type === "checkbox" ? $(id).checked : $(id).value.trim()]));

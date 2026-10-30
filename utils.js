@@ -1,4 +1,40 @@
 /* Shared helpers loaded by the MV3 service worker. */
+const SETTINGS_DEFAULTS = {
+  owner: "",
+  repo: "",
+  branch: "main",
+  folderTemplate: "{contestId}{index} - {name}",
+  commitMessageTemplate: "Add {contestId}{index} - {name} [{language}]",
+  autoPush: true,
+  includeReadme: true
+};
+const SETTINGS_KEYS = Object.keys(SETTINGS_DEFAULTS);
+
+/**
+ * Loads the same non-secret settings for the popup and service worker.
+ * The token is deliberately read only from local storage.
+ */
+async function getSettings() {
+  const [sync, local] = await Promise.all([
+    chrome.storage.sync.get(SETTINGS_DEFAULTS),
+    chrome.storage.local.get({ token: "" })
+  ]);
+  return {
+    owner: sync.owner || "",
+    repo: sync.repo || "",
+    branch: sync.branch || SETTINGS_DEFAULTS.branch,
+    folderTemplate: sync.folderTemplate || SETTINGS_DEFAULTS.folderTemplate,
+    commitMessageTemplate: sync.commitMessageTemplate || SETTINGS_DEFAULTS.commitMessageTemplate,
+    autoPush: sync.autoPush !== false,
+    includeReadme: sync.includeReadme !== false,
+    token: local.token || ""
+  };
+}
+
+function missingSettings(settings) {
+  return ["owner", "repo", "token"].filter((key) => !String(settings[key] || "").trim());
+}
+
 const LANGUAGE_EXTENSIONS = [
   [/^GNU C\+\+/i, ".cpp"], [/^C\+\+/i, ".cpp"],
   [/^GNU C(?:11|17)/i, ".c"], [/^C(?:11|17)/i, ".c"],
