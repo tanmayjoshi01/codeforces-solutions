@@ -2,13 +2,28 @@
 const SETTINGS_DEFAULTS = {
   owner: "",
   repo: "",
-  branch: "main",
-  folderTemplate: "{contestId}{index} - {name}",
+  branch: "",
+  folderTemplate: "{folder}/{contestId}{index} - {name}",
   commitMessageTemplate: "Add {contestId}{index} - {name} [{language}]",
   autoPush: true,
   includeReadme: true
 };
 const SETTINGS_KEYS = Object.keys(SETTINGS_DEFAULTS);
+
+function parseRepoInput(value) {
+  const input = String(value || "").trim().replace(/\/+$/, "");
+  if (!input) return null;
+  let match = input.match(/^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\/tree\/([^/\s]+)(?:\/(.*))?)?$/i);
+  if (!match) match = input.match(/^git@github\.com:([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+  if (!match) match = input.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
+  if (!match) return null;
+  return {
+    owner: match[1],
+    repo: match[2].replace(/\.git$/i, ""),
+    ...(match[3] ? { branch: decodeURIComponent(match[3]) } : {}),
+    ...(match[4] ? { path: decodeURIComponent(match[4].replace(/\/+$/, "")) } : {})
+  };
+}
 
 /**
  * Loads the same non-secret settings for the popup and service worker.
@@ -19,9 +34,10 @@ async function getSettings() {
     chrome.storage.sync.get(SETTINGS_DEFAULTS),
     chrome.storage.local.get({ token: "" })
   ]);
+  const parsed = parseRepoInput(`${sync.owner || ""}/${sync.repo || ""}`);
   return {
-    owner: sync.owner || "",
-    repo: sync.repo || "",
+    owner: parsed?.owner || sync.owner || "",
+    repo: parsed?.repo || sync.repo || "",
     branch: sync.branch || SETTINGS_DEFAULTS.branch,
     folderTemplate: sync.folderTemplate || SETTINGS_DEFAULTS.folderTemplate,
     commitMessageTemplate: sync.commitMessageTemplate || SETTINGS_DEFAULTS.commitMessageTemplate,
@@ -52,16 +68,35 @@ function extensionForLanguage(language) {
 
 function applyTemplate(template, data) {
   return String(template || "").replace(/\{(\w+)\}/g, (match, key) =>
-    Object.prototype.hasOwnProperty.call(data, key) ? String(data[key] ?? "") : match
+    Object.prototype.hasOwnProperty.call(data, key) ? String(data[key] ?? "") : ""
   );
+}
+
+function sanitizePlaceholderValue(value) {
+  return String(value ?? "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[. ]+|[. ]+$/g, "");
 }
 
 function sanitizePathPart(value) {
   return String(value || "solution")
-    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/[\\:*?"<>|]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/[. ]+$/g, "") || "solution";
+    .replace(/^[. ]+|[. ]+$/g, "") || "solution";
+}
+
+function applyPathTemplate(template, data) {
+  const values = Object.fromEntries(
+    Object.entries(data || {}).map(([key, value]) => [key, sanitizePlaceholderValue(value)])
+  );
+  return applyTemplate(template, values)
+    .split("/")
+    .map((segment) => segment ? sanitizePathPart(segment) : "")
+    .filter(Boolean)
+    .join("/");
 }
 
 function utf8ToBase64(value) {

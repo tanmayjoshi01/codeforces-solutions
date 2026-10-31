@@ -24,8 +24,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "GET_STATS") {
-    chrome.storage.local.get({ stats: { total: 0, days: [] } }).then(({ stats }) => {
-      sendResponse({ ok: true, total: stats.total || 0, streak: currentStreak(stats.days) });
+    chrome.storage.local.get({ history: [], stats: { total: 0, days: [] } }).then(({ history, stats }) => {
+      sendResponse({ ok: true, history: Array.isArray(history) ? history : [], legacyTotal: stats?.total || 0 });
     }).catch((error) => {
       sendResponse({ ok: false, error: error?.message || "Could not load statistics." });
     });
@@ -48,10 +48,11 @@ async function processSubmission(submission, manual) {
 
   const data = {
     ...submission,
+    name: submission.problemName || "",
     contestIndex: `${submission.contestId || ""}${submission.index || ""}`,
     date: new Date().toISOString().slice(0, 10)
   };
-  const folder = sanitizePathPart(applyTemplate(settings.folderTemplate, data));
+  const folder = applyPathTemplate(data.name ? settings.folderTemplate : "{contestId}{index}", data);
   const extension = extensionForLanguage(submission.language);
   const fileName = /^Java$/i.test(submission.language || "") ? "Main.java" : `solution${extension}`;
   const filePath = `${folder}/${fileName}`;
@@ -66,6 +67,20 @@ async function processSubmission(submission, manual) {
 
   await rememberPush(String(submission.submissionId));
   await updateStats();
+  if (fileResult.changed) {
+    const record = {
+      submissionId: String(submission.submissionId),
+      date: new Date().toISOString(),
+      day: localDay(),
+      contestId: submission.contestId || "",
+      index: submission.index || "",
+      name: submission.problemName || submission.problemTitle || "",
+      rating: Number.isFinite(Number(submission.rating)) ? Number(submission.rating) : null,
+      tags: Array.isArray(submission.tags) ? submission.tags.map(String) : [],
+      language: submission.language || ""
+    };
+    await rememberHistory(record);
+  }
   await setBadge();
   return { ok: true, url: fileResult.url, message: fileResult.changed ? "Pushed to GitHub" : "No changes", readmeUrl: readmeResult?.url };
 }
@@ -123,13 +138,17 @@ async function upsertFile(settings, path, content, message, retried = false) {
 }
 
 function makeReadme(submission, date) {
-  const problemUrl = `https://codeforces.com/contest/${encodeURIComponent(submission.contestId)}/problem/${encodeURIComponent(submission.index)}`;
-  return `# ${submission.problemName || `${submission.contestId}${submission.index}`}\n\n` +
-    `- Problem: [${submission.contestId}${submission.index}](${problemUrl})\n` +
-    `- Submission: [View on Codeforces](${submission.submissionUrl})\n` +
-    `- Language: ${submission.language || "Unknown"}\n- Runtime: ${submission.time || "Unknown"}\n` +
-    `- Memory: ${submission.memory || "Unknown"}\n- Rating: ${submission.rating || "Unknown"}\n` +
-    `- Tags: ${(submission.tags || []).join(", ") || "Unknown"}\n- Pushed: ${date}\n`;
+  const problemUrl = submission.problemUrl ||
+    `https://codeforces.com/contest/${encodeURIComponent(submission.contestId)}/problem/${encodeURIComponent(submission.index)}`;
+  const title = submission.problemTitle || submission.problemName || `${submission.contestId}${submission.index}`;
+  const rating = submission.rating == null ? "" : `**Difficulty/Rating:** ${submission.rating}`;
+  const tags = submission.tags?.length ? `**Tags:** ${submission.tags.join(", ")}` : "";
+  const metadata = [rating, tags, submission.timeLimit ? `**Time limit:** ${submission.timeLimit}` : "",
+    submission.memoryLimit ? `**Memory limit:** ${submission.memoryLimit}` : ""].filter(Boolean).join(" | ");
+  const statement = submission.problemMarkdown ? `\n${submission.problemMarkdown.trim()}\n` : "";
+  const table = `| Language | Runtime | Memory | Submission |\n| --- | --- | --- | --- |\n` +
+    `| ${submission.language || "Unknown"} | ${submission.time || "Unknown"} | ${submission.memory || "Unknown"} | [View on Codeforces](${submission.submissionUrl}) |`;
+  return `# [${title}](${problemUrl})\n\n${metadata}${metadata ? "\n" : ""}${statement}\n\nPushed: ${date}\n\n${table}\n`;
 }
 
 async function rememberPush(id) {
@@ -137,22 +156,21 @@ async function rememberPush(id) {
   await chrome.storage.local.set({ pushedSubmissions: [...pushedSubmissions.filter((item) => item !== id), id].slice(-5000) });
 }
 
+async function rememberHistory(record) {
+  const { history = [] } = await chrome.storage.local.get({ history: [] });
+  const next = [...history.filter((item) => String(item.submissionId) !== record.submissionId), record].slice(-5000);
+  await chrome.storage.local.set({ history: next });
+}
+
 async function updateStats() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const { stats = { total: 0, days: [] } } = await chrome.storage.local.get({ stats: { total: 0, days: [] } });
   const days = [...new Set([...(stats.days || []), today])].sort().slice(-5000);
   await chrome.storage.local.set({ stats: { total: (stats.total || 0) + 1, days } });
 }
 
-function currentStreak(days) {
-  const set = new Set(days || []);
-  let date = new Date();
-  let streak = 0;
-  while (set.has(date.toISOString().slice(0, 10))) {
-    streak += 1;
-    date.setUTCDate(date.getUTCDate() - 1);
-  }
-  return streak;
+function localDay(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 async function setBadge() {
