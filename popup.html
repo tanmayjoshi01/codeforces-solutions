@@ -10,13 +10,17 @@
   <main class="app">
     <section id="dashboard" class="view active" aria-label="Dashboard">
       <header class="topbar">
-        <div class="heading"><span id="mood" class="mood" aria-hidden="true">👀</span><div><h1>CF2GitHub</h1><p id="subtitle">Push one solution to begin.</p></div></div>
+        <div class="heading"><div><h1>CF2GitHub</h1><p>Codeforces progress</p></div></div>
         <button id="openSettings" class="icon-button" type="button" aria-label="Settings">⚙</button>
       </header>
-      <div id="streakHeading" class="streak-heading"><strong id="streakTitle">Start your streak!</strong></div>
-      <div id="week" class="week" aria-label="Last seven days"></div>
-      <section class="chart-card" aria-label="Solved problems by difficulty">
-        <div class="chart-wrap">
+      <section class="hero-card">
+        <div class="hero-main"><span id="mood" class="mood" aria-hidden="true">👀</span><div><span class="hero-kicker">CURRENT STREAK</span><strong id="streakNumber">0</strong><span>days</span></div></div>
+        <p id="streakTitle">Solve one to start</p><div class="milestone"><span id="milestoneText">Next milestone</span><span id="milestoneCount">0 / 3</span></div><div class="progress"><span id="milestoneProgress"></span></div>
+      </section>
+      <section class="section-card week-card"><div class="section-heading"><strong>This week</strong><span id="weekHint"></span></div><div id="week" class="week" aria-label="Last seven days"></div></section>
+      <section class="section-card profile-card"><div class="section-heading"><strong>Codeforces rank</strong><button id="refreshProfile" class="text-button" type="button">Refresh</button></div><div class="profile-main"><div><small>Rating</small><strong id="cfRating">—</strong></div><div><small>Rank</small><strong id="cfRank">Add handle</strong></div></div><div class="profile-meta"><span id="cfHandleLabel"></span><span id="cfMaxRating"></span></div><p id="profileStatus" class="profile-status"></p></section>
+      <section class="section-card chart-card" aria-label="Solved problems by difficulty">
+        <div id="chartWrap" class="chart-wrap">
           <svg id="chart" viewBox="0 0 120 120" role="img" aria-label="Solved problems chart">
             <circle class="chart-track" cx="60" cy="60" r="48"></circle>
             <g id="chartSegments" transform="rotate(-90 60 60)"></g>
@@ -25,6 +29,7 @@
           </svg>
         </div>
         <div id="legend" class="legend"></div>
+        <div id="ratingBars" class="mini-activity" hidden></div>
       </section>
       <p id="emptyState" class="empty-state" hidden>No solutions yet. Solve a problem on Codeforces and it will show up here.</p>
       <div class="tiles">
@@ -32,7 +37,10 @@
         <div><span>Best streak</span><strong id="bestTile">0</strong></div>
         <div><span>This week</span><strong id="weekTile">0</strong></div>
       </div>
-      <div id="tags" class="tags" hidden><span>Top tags</span><div id="tagList"></div></div>
+      <section id="recentCard" class="section-card"><div class="section-heading"><strong>Recent solves</strong><span>Latest 5</span></div><div id="recentSolves"></div></section>
+      <section id="tags" class="section-card tags-card" hidden><div class="section-heading"><strong>Top tags</strong></div><div id="tagList" class="tag-list"></div></section>
+      <section id="badgesCard" class="section-card"><div class="section-heading"><strong>Achievements</strong></div><div id="badges" class="badges"></div></section>
+      <div id="confetti" class="confetti" aria-hidden="true"></div>
       <p id="connection" class="connection"></p>
     </section>
 
@@ -55,25 +63,13 @@
           <div id="repoList" class="repo-list"></div>
           <p id="repoEmpty" class="help" hidden>Organization repositories may need OAuth app approval. <a href="https://github.com/settings/connections/applications/Ov23liHNJrffK1JFyWU0" target="_blank" rel="noopener">Review approval</a>.</p>
         </section>
-        <div id="manualSetup" hidden>
-          <label>Repository URL <input id="repoInput" placeholder="https://github.com/username/repo" autocomplete="url"></label>
-          <p id="repoPreview" class="repo-preview" aria-live="polite"></p>
-          <label>GitHub token <span class="token-row"><input id="token" type="password" autocomplete="off"><button id="toggleToken" type="button">Show</button></span></label>
-          <p class="help">Fine-grained token, only this repo, Contents: Read and write.</p>
-          <a href="https://github.com/settings/personal-tokens/new" target="_blank" rel="noopener">How to get a token</a>
-          <button id="connect" class="primary connect-button" type="submit">Connect</button>
-        </div>
-        <details id="advanced"><summary>Advanced</summary>
-          <p><button id="manualRepo" class="text-button" type="button">Paste a repo URL instead</button></p>
-          <p><button id="manualToken" class="text-button" type="button">Use a token instead</button></p>
-          <label>Branch <input id="branch" placeholder="auto-detect"></label>
+        <section class="options">
+          <h2>Options</h2>
+          <label>Codeforces handle <input id="cfHandle" placeholder="tourist"></label>
           <label>Folder <input id="folder" value="CODEFORCES"></label>
-          <label>Folder template <input id="folderTemplate"></label>
-          <small>{folder}, {contestId}, {index}, {name}, {language}</small>
-          <label>Commit message template <input id="commitMessageTemplate"></label>
           <label class="check"><input id="autoPush" type="checkbox"> Auto-push on Accepted</label>
           <label class="check"><input id="includeReadme" type="checkbox"> Include README</label>
-        </details>
+        </section>
         <p id="status" role="status"></p>
         <div id="configuredActions" class="configured-actions" hidden><button id="change" type="button">Change</button><button id="disconnect" type="button">Disconnect</button></div>
       </form>

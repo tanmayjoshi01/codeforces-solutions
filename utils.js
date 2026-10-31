@@ -6,7 +6,8 @@ const SETTINGS_DEFAULTS = {
   folderTemplate: "{folder}/{contestId}{index} - {name}",
   commitMessageTemplate: "Add {contestId}{index} - {name} [{language}]",
   autoPush: true,
-  includeReadme: true
+  includeReadme: true,
+  cfHandle: ""
 };
 const SETTINGS_KEYS = Object.keys(SETTINGS_DEFAULTS);
 const GITHUB_CLIENT_ID = "Ov23liHNJrffK1JFyWU0";
@@ -44,6 +45,7 @@ async function getSettings() {
     commitMessageTemplate: sync.commitMessageTemplate || SETTINGS_DEFAULTS.commitMessageTemplate,
     autoPush: sync.autoPush !== false,
     includeReadme: sync.includeReadme !== false,
+    cfHandle: sync.cfHandle || "",
     token: local.token || ""
   };
 }

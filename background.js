@@ -20,16 +20,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!response || typeof response.ok !== "boolean") {
         response = { ok: false, error: "The push operation returned an invalid response." };
       }
-      if (!response.ok) notify("CF2GitHub", response.error);
+      if (!response.ok) {
+        await setFailureBadge();
+        notify("CF2GitHub", response.error);
+      }
       sendResponse(response);
     }).catch((error) => {
       const response = { ok: false, error: error?.message || "Unexpected error." };
+      setFailureBadge();
       notify("CF2GitHub", response.error);
       sendResponse(response);
     });
     return true;
   }
   if (message?.type === "GET_STATS") {
+    chrome.action.setBadgeText({ text: "" }).catch(() => {});
     chrome.storage.local.get({ history: [], stats: { total: 0, days: [] } }).then(({ history, stats }) => {
       sendResponse({ ok: true, history: Array.isArray(history) ? history : [], legacyTotal: stats?.total || 0 });
     }).catch((error) => {
@@ -53,9 +58,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getGitHubUser().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
+  if (message?.type === "CF_GET_PROFILE") {
+    getCodeforcesProfile(message.handle).then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   sendResponse({ ok: false, error: "Unsupported message type." });
   return true;
 });
+
+async function getCodeforcesProfile(handle) {
+  const cleanHandle = String(handle || "").trim();
+  if (!cleanHandle) return { ok: false, error: "Add your Codeforces handle in Advanced settings." };
+  const response = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(cleanHandle)}`);
+  if (!response.ok) return { ok: false, error: "Could not load Codeforces profile." };
+  const data = await response.json();
+  if (data.status !== "OK" || !data.result?.[0]) return { ok: false, error: "Codeforces handle was not found." };
+  return { ok: true, profile: data.result[0] };
+}
 
 async function startGitHubLogin() {
   const response = await fetch("https://github.com/login/device/code", {
@@ -198,6 +217,7 @@ async function processSubmission(submission, manual) {
       contestId: submission.contestId || "",
       index: submission.index || "",
       name: submission.problemName || submission.problemTitle || "",
+      problemUrl: submission.problemUrl || "",
       rating: Number.isFinite(Number(submission.rating)) ? Number(submission.rating) : null,
       tags: Array.isArray(submission.tags) ? submission.tags.map(String) : [],
       language: submission.language || ""
@@ -297,9 +317,14 @@ function localDay(date = new Date()) {
 }
 
 async function setBadge() {
-  await chrome.action.setBadgeText({ text: "✓" });
-  await chrome.action.setBadgeBackgroundColor({ color: "#16803c" });
-  setTimeout(() => chrome.action.setBadgeText({ text: "" }).catch(() => {}), 4000);
+  await chrome.action.setBadgeText({ text: "★" });
+  await chrome.action.setBadgeBackgroundColor({ color: "#d97706" });
+  setTimeout(() => chrome.action.setBadgeText({ text: "" }).catch(() => {}), 3000);
+}
+
+async function setFailureBadge() {
+  await chrome.action.setBadgeText({ text: "!" });
+  await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
 }
 
 function notify(title, message) {
