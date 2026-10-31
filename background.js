@@ -2,6 +2,12 @@ importScripts("utils.js");
 
 let pushQueue = Promise.resolve();
 
+chrome.runtime.onStartup.addListener(resumeLogin);
+chrome.runtime.onInstalled.addListener(resumeLogin);
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "github-device-login") pollGitHubLogin();
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "PUSH_SUBMISSION") {
     pushQueue = pushQueue.then(async () => {
@@ -31,9 +37,126 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message?.type === "GH_LOGIN_START") {
+    startGitHubLogin().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "GH_LOGIN_CANCEL") {
+    cancelGitHubLogin().then(sendResponse);
+    return true;
+  }
+  if (message?.type === "GH_LIST_REPOS") {
+    listGitHubRepos().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "GH_GET_USER") {
+    getGitHubUser().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   sendResponse({ ok: false, error: "Unsupported message type." });
   return true;
 });
+
+async function startGitHubLogin() {
+  const response = await fetch("https://github.com/login/device/code", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: GITHUB_CLIENT_ID, scope: "repo" })
+  });
+  if (!response.ok) throw new Error("Could not start GitHub login.");
+  const data = await response.json();
+  const state = {
+    device_code: data.device_code,
+    user_code: data.user_code,
+    verification_uri: data.verification_uri || data.verification_uri_complete,
+    expires_at: Date.now() + Number(data.expires_in || 900) * 1000,
+    interval: Number(data.interval || 5)
+  };
+  await chrome.storage.local.set({ loginState: state });
+  await chrome.tabs.create({ url: state.verification_uri });
+  scheduleLoginPoll(state.interval);
+  return { ok: true, state: { user_code: state.user_code, verification_uri: state.verification_uri, expires_at: state.expires_at, interval: state.interval } };
+}
+
+function scheduleLoginPoll(interval) {
+  chrome.alarms.create("github-device-login", { delayInMinutes: Math.max(0.01, interval / 60) });
+}
+
+async function pollGitHubLogin() {
+  const { loginState } = await chrome.storage.local.get({ loginState: null });
+  if (!loginState) return;
+  if (Date.now() >= loginState.expires_at) {
+    await chrome.storage.local.remove("loginState");
+    notifyLogin("GH_LOGIN_STATUS", { ok: false, error: "Code expired, try again" });
+    return;
+  }
+  let response;
+  try {
+    response = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: GITHUB_CLIENT_ID, device_code: loginState.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" })
+    });
+  } catch (error) {
+    scheduleLoginPoll(loginState.interval);
+    return;
+  }
+  const data = await response.json();
+  if (data.error === "authorization_pending") return scheduleLoginPoll(loginState.interval);
+  if (data.error === "slow_down") {
+    loginState.interval += 5;
+    await chrome.storage.local.set({ loginState });
+    return scheduleLoginPoll(loginState.interval);
+  }
+  await chrome.storage.local.remove("loginState");
+  if (data.error === "expired_token") return notifyLogin("GH_LOGIN_STATUS", { ok: false, error: "Code expired, try again" });
+  if (data.error === "access_denied") return notifyLogin("GH_LOGIN_STATUS", { ok: false, error: "Login cancelled" });
+  if (!data.access_token) return notifyLogin("GH_LOGIN_STATUS", { ok: false, error: "GitHub login failed." });
+  await chrome.storage.local.set({ token: data.access_token });
+  notifyLogin("GH_LOGIN_STATUS", { ok: true });
+}
+
+function notifyLogin(type, payload) {
+  chrome.runtime.sendMessage({ type, ...payload }).catch(() => {});
+}
+
+async function cancelGitHubLogin() {
+  await chrome.storage.local.remove("loginState");
+  await chrome.alarms.clear("github-device-login");
+  return { ok: true };
+}
+
+async function resumeLogin() {
+  const { loginState } = await chrome.storage.local.get({ loginState: null });
+  if (loginState) scheduleLoginPoll(Math.max(1, (loginState.expires_at - Date.now()) / 1000 < loginState.interval ? 1 : loginState.interval));
+}
+
+async function githubApi(path) {
+  const { token } = await chrome.storage.local.get({ token: "" });
+  const response = await fetch(`https://api.github.com${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
+  if (response.status === 401) {
+    await chrome.storage.local.remove("token");
+    throw new Error("Session expired, log in again.");
+  }
+  if (!response.ok) throw new Error(`GitHub request failed (${response.status}).`);
+  return response.json();
+}
+
+async function getGitHubUser() {
+  try { return { ok: true, user: await githubApi("/user") }; } catch (error) { return { ok: false, error: error.message }; }
+}
+
+async function listGitHubRepos() {
+  try {
+    const repos = [];
+    for (let page = 1; page <= 3; page += 1) {
+      const batch = await githubApi(`/user/repos?sort=pushed&per_page=100&affiliation=owner,collaborator,organization_member&page=${page}`);
+      repos.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return { ok: true, repos };
+  } catch (error) { return { ok: false, error: error.message }; }
+}
 
 async function processSubmission(submission, manual) {
   const settings = await getSettings();

@@ -39,13 +39,33 @@
     <section id="settings" class="view settings-view" aria-label="Settings">
       <header class="topbar"><div class="heading"><button id="back" class="icon-button back" type="button" aria-label="Back to dashboard">←</button><div><h1>Settings</h1><p>Connect your Codeforces archive</p></div></div></header>
       <form id="settingsForm">
-        <label>Repository URL <input id="repoInput" placeholder="https://github.com/username/repo" autocomplete="url"></label>
-        <p id="repoPreview" class="repo-preview" aria-live="polite"></p>
-        <label>GitHub token <span class="token-row"><input id="token" type="password" autocomplete="off"><button id="toggleToken" type="button">Show</button></span></label>
-        <p class="help">Fine-grained token, only this repo, Contents: Read and write.</p>
-        <a href="https://github.com/settings/personal-tokens/new" target="_blank" rel="noopener">How to get a token</a>
-        <button id="connect" class="primary connect-button" type="submit">Connect</button>
+        <div id="oauthLogin">
+          <button id="loginGithub" class="primary connect-button" type="button">Login with GitHub</button>
+          <p class="help">Choose a repository securely without copying a token.</p>
+        </div>
+        <div id="loginCode" hidden>
+          <p class="help">Enter this code on GitHub, then come back.</p>
+          <strong id="userCode" class="user-code"></strong>
+          <button id="copyCode" type="button">Copy</button>
+          <button id="cancelLogin" type="button">Cancel</button>
+        </div>
+        <div id="githubAccount" hidden><img id="avatar" alt="" class="avatar"><span id="username"></span><button id="logout" type="button">Log out</button></div>
+        <section id="repoPicker" hidden>
+          <label>Repository <input id="repoSearch" placeholder="Search your repositories"></label>
+          <div id="repoList" class="repo-list"></div>
+          <p id="repoEmpty" class="help" hidden>Organization repositories may need OAuth app approval. <a href="https://github.com/settings/connections/applications/Ov23liHNJrffK1JFyWU0" target="_blank" rel="noopener">Review approval</a>.</p>
+        </section>
+        <div id="manualSetup" hidden>
+          <label>Repository URL <input id="repoInput" placeholder="https://github.com/username/repo" autocomplete="url"></label>
+          <p id="repoPreview" class="repo-preview" aria-live="polite"></p>
+          <label>GitHub token <span class="token-row"><input id="token" type="password" autocomplete="off"><button id="toggleToken" type="button">Show</button></span></label>
+          <p class="help">Fine-grained token, only this repo, Contents: Read and write.</p>
+          <a href="https://github.com/settings/personal-tokens/new" target="_blank" rel="noopener">How to get a token</a>
+          <button id="connect" class="primary connect-button" type="submit">Connect</button>
+        </div>
         <details id="advanced"><summary>Advanced</summary>
+          <p><button id="manualRepo" class="text-button" type="button">Paste a repo URL instead</button></p>
+          <p><button id="manualToken" class="text-button" type="button">Use a token instead</button></p>
           <label>Branch <input id="branch" placeholder="auto-detect"></label>
           <label>Folder <input id="folder" value="CODEFORCES"></label>
           <label>Folder template <input id="folderTemplate"></label>

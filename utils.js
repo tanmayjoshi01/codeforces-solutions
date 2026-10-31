@@ -9,6 +9,7 @@ const SETTINGS_DEFAULTS = {
   includeReadme: true
 };
 const SETTINGS_KEYS = Object.keys(SETTINGS_DEFAULTS);
+const GITHUB_CLIENT_ID = "Ov23liHNJrffK1JFyWU0";
 
 function parseRepoInput(value) {
   const input = String(value || "").trim().replace(/\/+$/, "");

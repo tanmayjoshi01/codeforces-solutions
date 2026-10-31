@@ -7,11 +7,11 @@ CF2GitHub is a plain JavaScript Chrome Manifest V3 extension that pushes newly a
 1. Create an empty GitHub repository (a private repository works).
 2. Create a fine-grained personal access token at [GitHub token settings](https://github.com/settings/personal-tokens/new). Give it access to the repository and **Contents: Read and write** permission. Never share the token.
 3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this `cf2github` folder.
-4. Open the CF2GitHub popup, paste a GitHub repository URL, enter a fine-grained token with **Contents: Read and write**, and select **Connect**. Branch and other optional behavior are available under **Advanced**.
+4. Open the CF2GitHub popup, choose **Login with GitHub**, approve the device-flow request, and select a repository. The token is stored only in Chrome local storage; branch and other optional behavior are available under **Advanced**.
 
 ## Usage
 
-Open a Codeforces submissions or contest status page. When a submission observed in a waiting/non-accepted state changes to `OK`, it is pushed automatically if auto-push is enabled. Existing accepted rows get a **Push to GitHub** button for manual pushing. The extension stores the token only in Chrome local storage; other settings sync through Chrome storage sync.
+Open a Codeforces submissions or contest status page. When a submission observed in a waiting/non-accepted state changes to `OK`, it is pushed automatically if auto-push is enabled. Existing accepted rows get a **Push to GitHub** button for manual pushing. OAuth uses GitHub's device flow; a manual repository URL and fine-grained token remain available under **Advanced**. Other settings sync through Chrome storage sync.
 
 The default layout is `{folder}/{contestId}{index} - {name}/solution.<extension>`, with `CODEFORCES` as the default folder. Folder template values are sanitized individually, so template separators such as `/` remain path separators. Supported placeholders include `{folder}`, `{contestId}`, `{index}`, `{name}`, and `{language}`; unknown placeholders become empty. Existing saved templates continue to work.
 

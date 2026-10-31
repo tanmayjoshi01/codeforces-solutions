@@ -93,6 +93,50 @@ function updateRepoPreview() {
   if (parsed?.path) $("folder").value = parsed.path;
   return parsed;
 }
+function showLoginState(state, openTab = false) {
+  $("loginCode").hidden = false; $("oauthLogin").hidden = true; $("userCode").textContent = state.user_code;
+  $("copyCode").onclick = () => navigator.clipboard.writeText(state.user_code).then(() => status("Code copied."));
+  if (openTab && state.verification_uri) chrome.tabs.create({ url: state.verification_uri }).catch(() => {});
+}
+async function startLogin() {
+  status("Starting GitHub login...");
+  const response = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "GH_LOGIN_START" }, resolve));
+  if (!response?.ok) return status(response?.error || "Could not start GitHub login.", true);
+  showLoginState(response.state, true);
+}
+async function cancelLogin() {
+  await new Promise((resolve) => chrome.runtime.sendMessage({ type: "GH_LOGIN_CANCEL" }, resolve));
+  $("loginCode").hidden = true; $("oauthLogin").hidden = false; status("Login cancelled");
+}
+function renderRepos(repos) {
+  const list = $("repoList"); list.replaceChildren(); $("repoEmpty").hidden = Boolean(repos.length);
+  repos.forEach((repo) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "repo-option";
+    button.textContent = `${repo.private ? "🔒 " : ""}${repo.full_name}`;
+    button.addEventListener("click", async () => {
+      const selectedBranch = $("branch").value.trim() || repo.default_branch || "";
+      await chrome.storage.sync.set({ owner: repo.owner.login, repo: repo.name, branch: selectedBranch });
+      $("repoInput").value = `https://github.com/${repo.full_name}`; $("branch").value = selectedBranch;
+      status(repo.permissions?.push === false ? "Connected, but this token can't write to the repo. Give it Contents: Read and write." : `✓ Connected to ${repo.full_name}`, repo.permissions?.push === false);
+      if (repo.permissions?.push !== false) setTimeout(() => { showView("dashboard"); load().catch(() => {}); }, 650);
+    });
+    list.append(button);
+  });
+  $("repoSearch").oninput = () => {
+    const query = $("repoSearch").value.toLowerCase();
+    Array.from(list.children).forEach((item) => { item.hidden = !item.textContent.toLowerCase().includes(query); });
+  };
+}
+function showManualSetup() { $("manualSetup").hidden = false; $("advanced").open = true; }
+async function loadGitHubAccount() {
+  const [userResponse, reposResponse] = await Promise.all([
+    new Promise((resolve) => chrome.runtime.sendMessage({ type: "GH_GET_USER" }, resolve)),
+    new Promise((resolve) => chrome.runtime.sendMessage({ type: "GH_LIST_REPOS" }, resolve))
+  ]);
+  if (!userResponse?.ok || !reposResponse?.ok) return status(userResponse?.error || reposResponse?.error || "Session expired, log in again.", true);
+  $("githubAccount").hidden = false; $("avatar").src = userResponse.user.avatar_url || ""; $("username").textContent = userResponse.user.login;
+  $("repoPicker").hidden = false; renderRepos(reposResponse.repos || []);
+}
 async function connect(event) {
   event.preventDefault();
   const parsed = updateRepoPreview(), token = $("token").dataset.raw || $("token").value.trim();
@@ -101,7 +145,7 @@ async function connect(event) {
   const advanced = settingsValues(), branchFromUrl = parsed.branch, branch = branchFromUrl || advanced.branch;
   try {
     const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
-    if (response.status === 401) return status("Token is invalid or expired.", true);
+    if (response.status === 401) { await chrome.storage.local.remove("token"); return status("Session expired, log in again.", true); }
     if (response.status === 404) return status("Repo not found, or the token has no access to it. Check the URL and the token's repository access.", true);
     if (response.status === 403) return status("Token lacks permission.", true);
     if (!response.ok) return status(`Connection failed (${response.status}).`, true);
@@ -121,10 +165,15 @@ async function load() {
   $("repoInput").value = configured ? `https://github.com/${settings.owner}/${settings.repo}` : "";
   fillSettings(settings); renderStats(response?.history || [], response?.legacyTotal || 0);
   $("configuredActions").hidden = !configured;
-  if (configured) { $("connection").textContent = `Connected to ${settings.owner}/${settings.repo}`; $("token").value = `••••${settings.token.slice(-4)}`; $("token").dataset.masked = "true"; $("token").dataset.raw = settings.token; }
+  if (configured) { $("connection").textContent = `Connected to ${settings.owner}/${settings.repo}`; $("manualSetup").hidden = false; $("token").value = `••••${settings.token.slice(-4)}`; $("token").dataset.masked = "true"; $("token").dataset.raw = settings.token; loadGitHubAccount().catch(() => {}); }
   else { $("connection").className = "connection error"; $("connection").textContent = "Not configured "; const link = document.createElement("button"); link.className = "link-button"; link.textContent = "Open Settings"; link.addEventListener("click", () => showView("settings")); $("connection").append(link); showView("settings"); }
 }
 function disconnect() { if (!confirm("Disconnect CF2GitHub and clear its saved GitHub connection?")) return; Promise.all([chrome.storage.local.remove("token"), chrome.storage.sync.remove(["owner", "repo"])]).then(() => { $("token").value = ""; delete $("token").dataset.raw; delete $("token").dataset.masked; $("repoInput").value = ""; $("configuredActions").hidden = true; status("Disconnected."); }); }
 $("openSettings").addEventListener("click", () => showView("settings")); $("back").addEventListener("click", () => showView("dashboard")); $("settingsForm").addEventListener("submit", connect);
-$("repoInput").addEventListener("input", updateRepoPreview); $("folder").addEventListener("input", updateFolderTemplate); $("token").addEventListener("input", () => { delete $("token").dataset.masked; delete $("token").dataset.raw; }); $("toggleToken").addEventListener("click", () => { if ($("token").dataset.masked) { $("token").value = ""; delete $("token").dataset.masked; delete $("token").dataset.raw; } $("token").type = $("token").type === "password" ? "text" : "password"; $("toggleToken").textContent = $("token").type === "password" ? "Show" : "Hide"; }); $("change").addEventListener("click", () => { $("token").value = ""; delete $("token").dataset.masked; delete $("token").dataset.raw; $("repoInput").focus(); }); $("disconnect").addEventListener("click", disconnect);
+ $("loginGithub").addEventListener("click", () => startLogin().catch((error) => status(error.message, true)));
+ $("cancelLogin").addEventListener("click", () => cancelLogin().catch((error) => status(error.message, true)));
+ $("logout").addEventListener("click", () => { if (!confirm("Log out of GitHub and clear the saved connection?")) return; Promise.all([chrome.storage.local.remove(["token", "loginState"]), chrome.storage.sync.remove(["owner", "repo"])]).then(() => { $("githubAccount").hidden = true; $("repoPicker").hidden = true; showView("settings"); load().catch(() => {}); }); });
+ chrome.runtime.onMessage.addListener((message) => { if (message?.type !== "GH_LOGIN_STATUS") return; if (message.ok) { $("loginCode").hidden = true; $("oauthLogin").hidden = false; status("Logged in to GitHub."); loadGitHubAccount().catch((error) => status(error.message, true)); } else { $("loginCode").hidden = true; $("oauthLogin").hidden = false; status(message.error, true); } });
+$("repoInput").addEventListener("input", updateRepoPreview); $("folder").addEventListener("input", updateFolderTemplate); $("manualRepo").addEventListener("click", showManualSetup); $("manualToken").addEventListener("click", showManualSetup); $("token").addEventListener("input", () => { delete $("token").dataset.masked; delete $("token").dataset.raw; }); $("toggleToken").addEventListener("click", () => { if ($("token").dataset.masked) { $("token").value = ""; delete $("token").dataset.masked; delete $("token").dataset.raw; } $("token").type = $("token").type === "password" ? "text" : "password"; $("toggleToken").textContent = $("token").type === "password" ? "Show" : "Hide"; }); $("change").addEventListener("click", () => { showManualSetup(); $("token").value = ""; delete $("token").dataset.masked; delete $("token").dataset.raw; $("repoInput").focus(); }); $("disconnect").addEventListener("click", disconnect);
+chrome.storage.local.get({ loginState: null }).then(({ loginState }) => { if (loginState) showLoginState(loginState); }).catch(() => {});
 load().catch((error) => status(`Load failed: ${error.message}`, true));
