@@ -158,9 +158,15 @@ Check the following:
 
 ### Codeforces returns `403 Forbidden`
 
-Open the submission page directly in Codeforces and refresh it. Codeforces
-may temporarily restrict automated requests or require the page to be loaded
-from an authenticated session.
+Contest status pages show the verdict but generally do not contain the
+submitted source code. For a manual push, CF2GitHub opens the individual
+submission page in a new tab if Codeforces blocks the background request.
+Wait for the source code to load there, then click **Push to GitHub** on that
+submission page.
+
+Codeforces may also temporarily restrict automated requests or require the
+page to be loaded from an authenticated session. If needed, open the
+submission page directly, refresh it, and try again.
 
 ### View extension errors
 

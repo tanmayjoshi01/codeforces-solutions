@@ -23,7 +23,7 @@
     try {
       const cached = await chrome.storage.local.get({ problemCache: null });
       if (cached.problemCache && Date.now() - cached.problemCache.time < 86400000) return cached.problemCache.data[`${contestId}:${index}`] || {};
-      const response = await fetch("https://codeforces.com/api/problemset/problems");
+      const response = await fetch("https://codeforces.com/api/problemset.problems");
       if (!response.ok) return {};
       const json = await response.json();
       const data = Object.fromEntries(json.result.problems.map((problem) => [`${problem.contestId}:${problem.index}`, problem]));
@@ -166,9 +166,19 @@
   }
   function submissionUrl(row, id) {
     const link = row.querySelector('a[href*="/submission/"]');
-    if (link) return new URL(link.getAttribute("href"), location.origin).href;
-    const contest = (location.pathname.match(/\/(?:contest|gym)\/(\d+)/) || [])[1];
-    return contest ? `${location.origin}/${location.pathname.includes("/gym/") ? "gym" : "contest"}/${contest}/submission/${id}` : `${location.origin}/submission/${id}`;
+    const problemHref = row.querySelector('a[href*="/problem/"]')?.getAttribute("href") || "";
+    const rowContestMatch = problemHref.match(/\/(contest|gym)\/(\d+)\/problem\//);
+    const pageContestMatch = location.pathname.match(/\/(contest|gym)\/(\d+)/);
+    const contestType = rowContestMatch?.[1] || pageContestMatch?.[1];
+    const contest = rowContestMatch?.[2] || pageContestMatch?.[2];
+    if (link) {
+      const href = link.getAttribute("href") || "";
+      if (contest && /^\/submission\/\d+/.test(href)) {
+        return `${location.origin}/${contestType}/${contest}${href}`;
+      }
+      return new URL(href, location.origin).href;
+    }
+    return contest ? `${location.origin}/${contestType}/${contest}/submission/${id}` : `${location.origin}/submission/${id}`;
   }
   async function submissionDocument(url) {
     const currentUrl = new URL(location.href);
@@ -178,18 +188,67 @@
     }
     const response = await fetch(url, { credentials: "include", cache: "no-store" });
     if (response.status === 403) {
-      throw new Error("Codeforces denied the submission page (403). Open the submission page directly, then use Push to GitHub.");
+      const error = new Error("Codeforces denied the submission page (403).");
+      error.code = "SUBMISSION_PAGE_BLOCKED";
+      error.url = url;
+      throw error;
     }
     if (!response.ok) throw new Error(`Could not load submission (${response.status})`);
     return new DOMParser().parseFromString(await response.text(), "text/html");
   }
-  async function buildPayload(wrapper) {
+  function submissionSource(documentPage) {
+    const sourceElement = documentPage.querySelector(
+      "#program-source-text, textarea#program-source-text, pre.program-source, .program-source pre, .program-source code, .program-source-text, [id*='program-source']"
+    );
+    if (!sourceElement) return null;
+    const source = sourceElement.value ?? sourceElement.textContent;
+    return source == null || !source.trim() ? null : source;
+  }
+  async function waitForSubmissionSource(documentPage) {
+    const immediate = submissionSource(documentPage);
+    if (immediate) return immediate;
+    if (documentPage !== document) return null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const source = submissionSource(documentPage);
+      if (source) return source;
+    }
+    return null;
+  }
+  function sourceFromRow(row) {
+    const sourceElement = row.querySelector("pre, code, textarea");
+    const source = sourceElement?.value ?? sourceElement?.textContent;
+    return source && source.trim() ? source : null;
+  }
+  async function buildPayload(wrapper, manual) {
     const row = rowFor(wrapper);
     const id = wrapper.getAttribute("submissionid");
     const url = submissionUrl(row, id);
-    const documentPage = await submissionDocument(url);
-    const source = documentPage.querySelector("#program-source-text")?.textContent;
-    if (source == null) throw new Error("Source code was not found.");
+    const inlineSource = sourceFromRow(row);
+    if (inlineSource) {
+      return buildSubmissionPayload(row, id, url, document, inlineSource, wrapper.getAttribute("submissionverdict") || text(row, ["span.verdict"]));
+    }
+    let documentPage;
+    try {
+      documentPage = await submissionDocument(url);
+    } catch (error) {
+      if (manual && error.code === "SUBMISSION_PAGE_BLOCKED") {
+        window.open(error.url, "_blank", "noopener");
+        throw new Error("Codeforces blocked this request. The submission page was opened in a new tab; click Push to GitHub there.");
+      }
+      throw error;
+    }
+    const source = await waitForSubmissionSource(documentPage);
+    if (source == null) {
+      if (manual) {
+        window.open(url, "_blank", "noopener");
+        throw new Error("The submission page has no readable source yet. It was opened in a new tab; wait for the code to load, then click Push to GitHub there.");
+      }
+      throw new Error("Source code was not found. Open the submission page directly and try again.");
+    }
+    return buildSubmissionPayload(row, id, url, documentPage, source, wrapper.getAttribute("submissionverdict") || text(row, ["span.verdict"]));
+  }
+  async function buildSubmissionPayload(row, id, url, documentPage, source, verdict) {
     const contestMatch = url.match(/\/(?:contest|gym)\/(\d+)/);
     const contestId = contestMatch?.[1] || text(row, ["td.id a", "td:nth-child(1)"]);
     const problem = problemFields(row, documentPage);
@@ -202,7 +261,7 @@
       problemTitle: problemDetails.problemTitle, problemUrl: problemDetails.problemUrl,
       problemMarkdown: problemDetails.problemMarkdown, timeLimit: problemDetails.timeLimit,
       memoryLimit: problemDetails.memoryLimit, language,
-      verdict: wrapper.getAttribute("submissionverdict") || text(row, ["span.verdict"]),
+      verdict,
       time: text(row, ["td.time-consumed-cell", "td:nth-last-child(2)"]) ||
         documentPage.querySelector(".time-consumed-cell")?.textContent?.trim() || "",
       memory: text(row, ["td.memory-cell", "td:last-child"]) ||
@@ -213,7 +272,7 @@
   async function push(wrapper, manual, button) {
     const id = wrapper.getAttribute("submissionid");
     try {
-      const response = await chrome.runtime.sendMessage({ type: "PUSH_SUBMISSION", payload: await buildPayload(wrapper), manual });
+      const response = await chrome.runtime.sendMessage({ type: "PUSH_SUBMISSION", payload: await buildPayload(wrapper, manual), manual });
       if (response?.ok) toast(response.message === "No changes" ? "No changes" : "Pushed to GitHub");
       else toast(`Failed: ${response?.error || "Unknown error"}`, true);
     } catch (error) {
